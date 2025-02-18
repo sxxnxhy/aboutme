@@ -79,7 +79,7 @@
 			});
 
 			breakpoints.on('>large', function() {
-				$sidebar.addClass('inactive');
+				$sidebar.addClass('active');
 			});
 
 		// Hack: Workaround for Chrome/Android scrollbar position bug.
