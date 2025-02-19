@@ -1,0 +1,264 @@
+<!DOCTYPE HTML>
+<!--
+	Editorial by HTML5 UP
+	html5up.net | @ajlkn
+	Free for personal and commercial use under the CCA 3.0 license (html5up.net/license)
+-->
+<html>
+<head>
+    <title>Yoo's personal web</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+    <!-- Main -->
+    <div id="main">
+        <div class="inner">
+
+            <!-- Header -->
+            <header id="header">
+                <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+                <ul class="icons">
+                    <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+                    <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+                </ul>
+            </header>
+
+            <!-- Content -->
+            <section>
+                <header class="main">
+                    <h2>Planet Now 프로젝트 개발 중 발생한 문제와 해결 방법</h2>
+                </header>
+                <hr class="major" />
+                    <p>개발을 진행하면서 다양한 문제를 마주했고, 이를 해결하기 위해 여러 방법을 시도했다. 특히 Thymeleaf + MyBatis 조합을 사용하면서 발생한 이슈와 비동기 처리, 데이터베이스 연동에서 발생한 문제들이 많았다.
+                        이번 포스팅에서는 내가 겪은 주요 문제들과 해결 방법을 정리했다.</p>
+
+                <hr class="major" />
+                    <dl>
+                        <h4>MyBatis를 이용해 게시글을 keyword와 category로 불러올 때 값이 null로 인식되는 문제</h4>
+                        <dt>문제 발생:</dt>
+                        <dd>
+                            <p>전체 게시글 조회 페이지에서 특정 키워드와 카테고리를 이용한 검색 기능을 개발했다.</p>
+                            <p>String keyword와 String category를 MyBatis에 전달하여 일치하는 데이터를 조회해야 했지만, MyBatis에서 keyword와 category 값이 계속 null로 인식되는 문제가 발생했다.</p>
+                            <p>컨트롤러에서 정상적으로 값이 전달되고 있음에도 불구하고 MyBatis에 전달될 때 null이 되어 쿼리가 정상적으로 실행되지 않았다.</p>
+                        </dd>
+                        <dt>해결 방법:</dt>
+                        <dd>
+                            <p>keyword와 category를 Map으로 묶어 MyBatis로 전달하도록 변경했다.</p>
+                            <p>MyBatis에서 parameterType="map"을 사용하여 데이터를 올바르게 받도록 수정했다.</p>
+                            <pre><code>    @Override
+    public List<Map<String, Object>> getMainTaskList(Integer size, Integer page) {
+        Integer offset = page * size - 5;
+        Map<String, Object> map = new HashMap<>();
+        map.put("size", size);
+        map.put("offset", offset);
+        return mainTaskDAO.getMainTaskList(map);
+    }</code></pre>
+                        </dd>
+                        <p>이제 keyword와 category 값이 정상적으로 전달되어 검색이 정상적으로 동작함.</p>
+                    </dl>
+
+                <hr class="major" />
+                    <dl>
+                        <h4>AJAX요청으로 태스크 진행 상태를 변경한 후 화면에 즉시 반영되지 않는 문제</h4>
+                        <dt>문제 발생:</dt>
+                        <dd>
+                            <p>비동기 AJAX 요청을 통해 태스크 진행 상태를 업데이트했지만, 변경된 상태가 화면에 즉시 반영되지 않음..</p>
+                            <p>상태가 변경되었음에도 불구하고, 사용자가 페이지를 수동으로 새로고침하지 않으면 화면에서 변화를 확인할 수 없었다.</p>
+                        </dd>
+                        <dt>해결 방법:</dt>
+                        <dd>
+                            <p>AJAX 요청 성공 시 location.reload()를 사용하여 페이지를 새로고침하여 변경된 상태를 반영하도록 수정.</p>
+                            <pre><code>$.ajax({
+    url: "/sub-task/change-status",
+    type: "POST",
+    contentType: "application/json",
+    data: JSON.stringify({ subTaskId: subTaskId,
+                           taskStatusId: taskStatusId }),
+    success: function (response) {
+        // alert("상태가 업데이트되었습니다");
+        location.reload()
+    },</code></pre>
+                        </dd>
+                        <p>이제 상태 변경 후 자동으로 업데이트되어 사용자가 새로고침하지 않아도 변경 사항이 반영됨.</p>
+                    </dl>
+
+                <hr class="major" />
+                    <dl>
+                        <h4>Java의 LocalDate와 DB의 timestamp 불일치로 인한 오류 발생</h4>
+                        <dt>문제 발생:</dt>
+                        <dd>
+                            <p>백엔드에서는 LocalDate.now()를 사용하여 날짜를 처리했지만, 데이터베이스에서는 timestamp 타입을 사용하여 초 단위까지 저장하고 있었다.</p>
+                            <p>LocalDate.now()는 기본적으로 초 단위를 포함하지 않기 때문에 데이터를 비교할 때 문제가 발생했다.</p>
+                        </dd>
+                        <dt>해결 방법:</dt>
+                        <dd>
+                            <p>DB 쿼리에서 날짜를 변환하여 맞춤.</p>
+                            <p>DATE_FORMAT(변수명, '%Y-%m-%d') 형식으로 변환하여 LocalDate와 비교할 수 있도록 수정.</p>
+                            <p>프론트엔드에서도 날짜 포맷을 명시적으로 지정하여 바인딩.</p>
+                            <pre>SQL 쿼리 수정<code>SELECT DATE_FORMAT(M.ENROLLED_AT, '%Y-%m-%d') AS enrolledDate FROM members;</code></pre>
+                            <pre>Thymeleaf에서 날짜 포맷 적용<code><"input type="date" th:value="${#temporals.format(task.dueDate, 'yyyy-MM-dd')}"/</code></pre>
+                        </dd>
+                        <p>이제 Java와 DB 간 날짜 불일치 문제가 해결되어 정상적으로 동작함.</p>
+                    </dl>
+
+                <hr class="major" />
+                    <dl>
+                        <h4>여러 개의 Task를 INSERT할 때 성능 저하 발생</h4>
+                        <dt>문제 발생:</dt>
+                        <dd>
+                            <p>여러 개의 Task를 한 번에 추가해야 하는 기능을 개발 중이었음.</p>
+                            <p>기존에는 Java에서 for 문을 사용하여 개별적으로 INSERT 쿼리를 실행했지만, 이 방식은 성능이 매우 떨어지는 문제가 있었다. 반복되는 쿼리 실행을 해서 그렇다.</p>
+                        </dd>
+                        <dt>해결 방법:</dt>
+                        <dd>
+                            <p>DB에서 MyBatis의 foreach를 사용하여 한 번의 INSERT로 여러 개의 데이터를 처리하도록 변경.</p>
+                            <pre>기존코드 예시<code>for (Task task : taskList) {
+    taskMapper.insertTask(task);
+}</code></pre>
+                            <pre>개선된 코드 (MyBatis의 foreach 사용) 예시<code>insert id="insertTasks"
+    INSERT INTO tasks (title, status) VALUES
+    <foreach collection="taskList" item="task" separator=",">
+        (#{task.title}, #{task.status})
+    </foreach>
+/insert</code></pre>
+                        </dd>
+                        <p>이제 한 번의 쿼리 실행으로 여러 개의 데이터를 처리할 수 있어 성능이 개선됨.</p>
+                    </dl>
+                <hr class="major" />
+                    <dl>
+                        <h4>로그인 후 원래 보려던 페이지로 이동하지 않는 문제</h4>
+                        <dt>문제 발생:</dt>
+                        <dd>
+                            <p>로그인 후 사용자가 원래 보려던 페이지로 이동해야 하지만, 로그인 성공 후 무조건 홈 화면으로 이동하는 문제 발생.</p>
+                        </dd>
+                        <dt>해결 방법:</dt>
+                        <dd>
+                            <p>로그인 페이지에서 document.referrer 값을 확인하여 사용자가 원래 있던 페이지가 현재 웹사이트의 도메인과 일치하면 해당 페이지로 이동하도록 수정.</p>
+                            <pre>JavaScript 코드 수정<code>const referrer = document.referrer;
+if (referrer && referrer.includes(window.location.host)) {
+    window.location.href = referrer; // 같은 사이트 내에서만 이동
+} else {
+    window.location.href = "/home";  // 외부 사이트일 경우 홈 화면으로 이동
+}</code></pre>
+                        </dd>
+                        <p>이제 로그인 후 사용자가 원래 보려던 페이지로 자연스럽게 이동됨.</p>
+                    </dl>
+
+                <hr class="major" />
+                    <dl>
+                        <h4>WebSocket으로 채팅 구현 시 JSON 메시지가 그대로 출력되는 문제</h4>
+                        <dt>문제 발생:</dt>
+                        <dd>
+                            <p>stomp.js를 이용하여 클라이언트에서 JSON 형태로 메시지를 서버에 보냈다.</p>
+                            <p>하지만 서버에서 메시지를 받을 때 JSON이 HTML로 변환되지 않고 그대로 출력되는 문제 발생.</p>
+                            <p>이는 XSS(크로스 사이트 스크립팅) 공격 위험이 있는 보안 문제이기도 했다.</p>
+                        </dd>
+                        <dt>해결 방법:</dt>
+                        <dd>
+                            <p>@Payload를 사용하여 메시지를 받을 때 자동으로 변환되도록 설정하여 해결.</p>
+                            <pre>@MessageMapping("/chat")
+@SendTo("/topic/messages")
+public ChatMessage receiveMessage(@Payload ChatMessage message) {
+    return message;
+}</pre>
+                        </dd>
+                        <p>이제 메시지가 정상적으로 변환되어 출력되며, 보안 문제도 해결됨.</p>
+                    </dl>
+
+
+
+
+                <hr class="major"/>
+                <p>Posted on 2025.02.19</p>
+
+            </section>
+
+
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div id="sidebar" >
+        <div class="inner">
+            <!-- Menu -->
+            <nav id="menu">
+                <header class="major">
+                    <h2>Menu</h2>
+                </header>
+                <ul>
+                    <li><a href="../../index.html">Homepage</a></li>
+                    <li><a href="../../pages/about-me.html">About Me</a></li>
+                    <li>
+                        <span class="opener">Blog</span>
+                        <ul>
+                            <li><a href="../../pages/blog-dev.html">Dev</a></li>
+                            <li><a href="../../pages/blog-tech.html">Tech</a></li>
+                            <li><a href="../../pages/blog-personal.html">Personal</a></li>
+                            <li><a href="../../pages/blog-travel.html">Travel</a></li>
+                        </ul>
+                    </li>
+                    <li><a href="../../pages/projects.html">Projects</a></li>
+                </ul>
+            </nav>
+
+            <!-- Section -->
+            <!--								<section>-->
+            <!--									<header class="major">-->
+            <!--										<h2>Ante interdum</h2>-->
+            <!--									</header>-->
+            <!--									<div class="mini-posts">-->
+            <!--										<article>-->
+            <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+            <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+            <!--										</article>-->
+            <!--										<article>-->
+            <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+            <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+            <!--										</article>-->
+            <!--										<article>-->
+            <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+            <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+            <!--										</article>-->
+            <!--									</div>-->
+            <!--									<ul class="actions">-->
+            <!--										<li><a href="#" class="button">More</a></li>-->
+            <!--									</ul>-->
+            <!--								</section>-->
+
+            <!-- Section -->
+            <section>
+                <header class="major">
+                    <h2>Get in touch with me!</h2>
+                </header>
+                <p>Feel free to contact me!</p>
+                <ul class="contact">
+                    <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+                    <li class="icon solid fa-phone">+82-10-6868-1358</li>
+                    <li class="icon solid fa-home">Seoul, South Korea</li>
+                </ul>
+                <ul class="icons">
+                    <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+                    <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+                </ul>
+            </section>
+
+        </div>
+    </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>
