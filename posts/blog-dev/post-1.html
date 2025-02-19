@@ -51,6 +51,7 @@
                         <dd>
                             <p>keyword와 category를 Map으로 묶어 MyBatis로 전달하도록 변경했다.</p>
                             <p>MyBatis에서 parameterType="map"을 사용하여 데이터를 올바르게 받도록 수정했다.</p>
+                        </dd>
                             <pre><code>    @Override
     public List<Map<String, Object>> getMainTaskList(Integer size, Integer page) {
         Integer offset = page * size - 5;
@@ -59,7 +60,6 @@
         map.put("offset", offset);
         return mainTaskDAO.getMainTaskList(map);
     }</code></pre>
-                        </dd>
                         <p>이제 keyword와 category 값이 정상적으로 전달되어 검색이 정상적으로 동작함.</p>
                     </dl>
 
@@ -74,6 +74,7 @@
                         <dt>해결 방법:</dt>
                         <dd>
                             <p>AJAX 요청 성공 시 location.reload()를 사용하여 페이지를 새로고침하여 변경된 상태를 반영하도록 수정.</p>
+                        </dd>
                             <pre><code>$.ajax({
     url: "/sub-task/change-status",
     type: "POST",
@@ -84,7 +85,6 @@
         // alert("상태가 업데이트되었습니다");
         location.reload()
     },</code></pre>
-                        </dd>
                         <p>이제 상태 변경 후 자동으로 업데이트되어 사용자가 새로고침하지 않아도 변경 사항이 반영됨.</p>
                     </dl>
 
@@ -101,9 +101,9 @@
                             <p>DB 쿼리에서 날짜를 변환하여 맞춤.</p>
                             <p>DATE_FORMAT(변수명, '%Y-%m-%d') 형식으로 변환하여 LocalDate와 비교할 수 있도록 수정.</p>
                             <p>프론트엔드에서도 날짜 포맷을 명시적으로 지정하여 바인딩.</p>
+                        </dd>
                             <pre>SQL 쿼리 수정<code>SELECT DATE_FORMAT(M.ENROLLED_AT, '%Y-%m-%d') AS enrolledDate FROM members;</code></pre>
                             <pre>Thymeleaf에서 날짜 포맷 적용<code><"input type="date" th:value="${#temporals.format(task.dueDate, 'yyyy-MM-dd')}"/</code></pre>
-                        </dd>
                         <p>이제 Java와 DB 간 날짜 불일치 문제가 해결되어 정상적으로 동작함.</p>
                     </dl>
 
@@ -118,6 +118,7 @@
                         <dt>해결 방법:</dt>
                         <dd>
                             <p>DB에서 MyBatis의 foreach를 사용하여 한 번의 INSERT로 여러 개의 데이터를 처리하도록 변경.</p>
+                        </dd>
                             <pre>기존코드 예시<code>for (Task task : taskList) {
     taskMapper.insertTask(task);
 }</code></pre>
@@ -127,7 +128,6 @@
         (#{task.title}, #{task.status})
     </foreach>
 /insert</code></pre>
-                        </dd>
                         <p>이제 한 번의 쿼리 실행으로 여러 개의 데이터를 처리할 수 있어 성능이 개선됨.</p>
                     </dl>
                 <hr class="major" />
@@ -140,13 +140,13 @@
                         <dt>해결 방법:</dt>
                         <dd>
                             <p>로그인 페이지에서 document.referrer 값을 확인하여 사용자가 원래 있던 페이지가 현재 웹사이트의 도메인과 일치하면 해당 페이지로 이동하도록 수정.</p>
+                        </dd>
                             <pre>JavaScript 코드 수정<code>const referrer = document.referrer;
 if (referrer && referrer.includes(window.location.host)) {
     window.location.href = referrer; // 같은 사이트 내에서만 이동
 } else {
     window.location.href = "/home";  // 외부 사이트일 경우 홈 화면으로 이동
 }</code></pre>
-                        </dd>
                         <p>이제 로그인 후 사용자가 원래 보려던 페이지로 자연스럽게 이동됨.</p>
                     </dl>
 
@@ -162,12 +162,13 @@ if (referrer && referrer.includes(window.location.host)) {
                         <dt>해결 방법:</dt>
                         <dd>
                             <p>@Payload를 사용하여 메시지를 받을 때 자동으로 변환되도록 설정하여 해결.</p>
-                            <pre>@MessageMapping("/chat")
+                        </dd>
+                            <pre><code>@MessageMapping("/chat")
 @SendTo("/topic/messages")
 public ChatMessage receiveMessage(@Payload ChatMessage message) {
     return message;
-}</pre>
-                        </dd>
+}</code></pre>
+
                         <p>이제 메시지가 정상적으로 변환되어 출력되며, 보안 문제도 해결됨.</p>
                     </dl>
 
