@@ -36,7 +36,7 @@
         <hr class="major" />
         <dl>
           <h4>1. 도메인을 사서 A레코드를 본인의 서버공인ip로 설정.</h4>
-          <dt>aws라면 elastic ip 사용. 보안규칙에 80, 443, 22 포트가 허용되어있는지 확인</dt>
+          <p>aws라면 elastic ip 사용. 보안규칙에 80, 443, 22 포트가 허용되어있는지 확인</p>
 
         </dl>
 
@@ -50,7 +50,7 @@
 
         <dl>
           <h4>3. 운영환경 was 배포.</h4>
-          <dt>spring 실행. 포트 확인 필수. yaml 파일에 포트를 8080으로 설정한 것으로 예를 들겠음</dt>
+          <p>spring 실행. 포트 확인 필수. yaml 파일에 포트를 8080으로 설정한 것으로 예를 들겠음</p>
         </dl>
         </br>
 
@@ -103,11 +103,11 @@ sudo certbot --nginx -d richplace.ga -d www.richplace.ga -d dev.richplace.ga
 # 아래 명령어로 자동 리뉴얼이 적용되고 있는지 확인할 수 있다
 sudo certbot renew --dry-run
 </code></pre>
-          <dt>놀랍게도 certbot은 인증서 자동 갱신까지 처리해줌.</dt>
-          <dt>systemctl list-timers 명령어를 통해 추가된 타이머를 확인할 수 있음.</dt>
-          <dt>위 명령어 절차를 따르고 나면 certbot에 의해 인증 파일이 생성되고,
+          <p>놀랍게도 certbot은 인증서 자동 갱신까지 처리해줌.</p>
+          <p>systemctl list-timers 명령어를 통해 추가된 타이머를 확인할 수 있음.</p>
+          <p>위 명령어 절차를 따르고 나면 certbot에 의해 인증 파일이 생성되고,
             SSL 적용을 위한 NGINX 설정 파일이 수정되어있음.
-          </dt>
+          </p>
         </dl>
         </br>
 
@@ -172,10 +172,10 @@ server {
 
         <dl>
           <h4>10. ssl 적용 됐는지 확인.</h4>
-          <dt>접속해보고 ssl 적용 됐는지 확인.
-          </dt>
-          <dt>http주소로 들어가도 https로 리다렉팅이 돼야함. </dt>
-          <dt>ssllabs.com에 방문하여 ssl이 적용된 도메인 평가 가능.</dt>
+          <p>접속해보고 ssl 적용 됐는지 확인.
+          </p>
+          <p>http주소로 들어가도 https로 리다렉팅이 돼야함. </p>
+          <p>ssllabs.com에 방문하여 ssl이 적용된 도메인 평가 가능.</p>
         </dl>
 
 
