@@ -1,0 +1,313 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <!-- Content -->
+      <section>
+        <header class="main">
+          <h2>Https ssl인증 받기 및 websocket 통신 방법 정리</h2>
+        </header>
+        <hr class="major" />
+        <p>웹소켓을 이용하여 채팅서비스를 개발하던 중 웹소켓은 ssl인증을 받은 https에서만 connection을 보장한다는 것을 알게되었다. 그래서 aws에 내 개발 was를 올려서 ssl 적용을 해보았다.</p>
+
+        <hr class="major" />
+        <dl>
+          <h4>1. 도메인을 사서 A레코드를 본인의 서버공인ip로 설정.</h4>
+          <dt>aws라면 elastic ip 사용. 보안규칙에 80, 443, 22 포트가 허용되어있는지 확인</dt>
+
+        </dl>
+
+        </br>
+
+        <dl>
+          <h4>2. NGINX 설치</h4>
+          <pre><code>sudo apt-get install nginx -y</code></pre>
+        </dl>
+        </br>
+
+        <dl>
+          <h4>3. 운영환경 was 배포.</h4>
+          <dt>spring 실행. 포트 확인 필수. yaml 파일에 포트를 8080으로 설정한 것으로 예를 들겠음</dt>
+        </dl>
+        </br>
+
+        <dl>
+          <h4>4. NGINX 설정</h4>
+          <dt>/etc/nginx/sites-available으로 이동</dt>
+          <pre><code>cd /etc/nginx/sites-available</code></pre>
+
+          <dt>sudo vim default로 nginx 기본 설정 파일 열기</dt>
+          <pre><code>sudo vim default</code></pre>
+
+          <dt>default 파일 맨아래에 주석 처리되어있는 거 풀고 아래와 같이 설정</dt>
+          <pre><code>server {
+    listen 80;
+    server_name www.syoo.shop;
+
+    location /api {
+        proxy_pass http://127.0.0.1:8080;
+    }
+}
+</code></pre>
+
+          <dt>nginx 재시작</dt>
+          <pre><code>sudo service nginx restart</code></pre>
+
+        </dl>
+        </br>
+
+        <dl>
+          <h4>5. ssl 인증 받기</h4>
+          <pre><code># certbot을 snap 명령어로 설치, 실행하기 때문에 snap을 먼저 설치한다
+sudo snap install core
+sudo snap refresh core
+
+# 기존에 설치된 certbot을 제거한다
+# 공식 가이드에선 certbot명령어를 사용할 때 snap이 사용되게 하기 위함이라고 설명한다
+sudo apt-get remove certbot
+
+# certbot을 설치한다
+sudo snap install --classic certbot
+
+# certbot 명령어가 실행될 수 있게 세팅한다
+sudo ln -s /snap/bin/certbot /usr/bin/certbot
+
+# nginx가 아닌 apache를 웹서버로 사용할 경우, sudo certbot --apache 가 된다
+sudo certbot --nginx -d richplace.ga -d www.richplace.ga -d dev.richplace.ga
+
+# 놀랍게도 certbot은 CLI몇 줄로 SSL을 적용해줄 뿐 아니라 자동 리뉴얼까지 해준다;
+# 처음 설치할 때부터 이러한 cron job 처리를 위한 내용이 함께 들어온다
+# 아래 명령어로 자동 리뉴얼이 적용되고 있는지 확인할 수 있다
+sudo certbot renew --dry-run
+</code></pre>
+          <dt>놀랍게도 certbot은 인증서 자동 갱신까지 처리해줌.</dt>
+          <dt>systemctl list-timers 명령어를 통해 추가된 타이머를 확인할 수 있음.</dt>
+          <dt>위 명령어 절차를 따르고 나면 certbot에 의해 인증 파일이 생성되고,
+            SSL 적용을 위한 NGINX 설정 파일이 수정되어있음.
+          </dt>
+        </dl>
+        </br>
+
+        <dl>
+          <h4>9. 변경된 설정 파일 확인.</h4>
+          <pre><code>cd /etc/nginx/sites-available
+
+sudo vim default</code></pre>
+          <dt>Websocket 설정이 필요하다면, 아래와 같이 #WebSocket configuration 추가</dt>
+          <pre><code># Virtual Host configuration for example.com
+#
+# You can move that to a different file under sites-available/ and symlink that
+# to sites-enabled/ to enable it.
+#
+server {
+
+        server_name www.syoo.shop;
+
+        root /var/www/example.com;
+        index index.html;
+
+        location / {
+                proxy_pass http://127.0.0.1:8080;
+        }
+           # WebSocket configuration
+    location /websocket {
+        proxy_pass http://127.0.0.1:8080; # or wherever your WebSocket server is running
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    listen 443 ssl; # managed by Certbot
+    listen [::]:443 ssl ipv6only=on; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/www.syoo.shop/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/www.syoo.shop/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+}
+
+server {
+    if ($host = www.syoo.shop) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
+
+
+        listen 80;
+        listen [::]:80;
+
+        server_name www.syoo.shop;
+    return 404; # managed by Certbot
+
+
+}
+</code></pre>
+        </dl>
+        </br>
+
+        <dl>
+          <h4>10. ssl 적용 됐는지 확인.</h4>
+          <dt>접속해보고 ssl 적용 됐는지 확인.
+          </dt>
+          <dt>http주소로 들어가도 https로 리다렉팅이 돼야함. </dt>
+          <dt>ssllabs.com에 방문하여 ssl이 적용된 도메인 평가 가능.</dt>
+        </dl>
+
+
+
+        <hr class="major"/>
+
+
+        <dl>
+          <h4>변외 : 도메인을 바꾸고 다시 ssl인증을 받고 싶을 때</h4>
+          </br>
+          <dt>1. 도메인을 다시 A레코드에 맵핑함 (그전 도메인 설정 해제 확인)</dt>
+          </br>
+          <dt>2. nginx 다시 설치</dt>
+          <pre><code>sudo apt-get purge nginx nginx-common nginx-full
+sudo rm -rf /etc/nginx
+sudo apt-get install nginx
+</code></pre>
+          </br>
+          <dt>3. 위에 설명중 4번의 nginx 설정을 다시 해줌 </dt>
+          <pre><code># 참고 nginx 명령어
+sudo systemctl start nginx  #nginx 시작
+sudo systemctl restart nginx  #nginx 다시시작
+sudo systemctl status nginx   #nginx status 확인
+sudo nginx -t.  # 설정파일 문제 확인
+</code></pre>
+          </br>
+
+          <dt>4. certbot 지우기</dt>
+          <pre><code>sudo snap remove certbot
+sudo rm -rf /etc/letsencrypt
+sudo rm -rf /var/log/letsencrypt
+sudo rm -rf /var/lib/letsencrypt
+</code></pre>
+          </br>
+
+          <dt>5. 위에 설명중 5번부터 계속하면 된다.</dt>
+
+
+        </dl>
+
+
+        <hr class="major"/>
+        <h5>참조 url</h5>
+        <div class="box">
+          <a href="https://creampuffy.tistory.com/191#1.%20%EB%8F%84%EB%A9%94%EC%9D%B8%20%ED%99%95%EB%B3%B4%20%EB%B0%8F%20%ED%83%80%EA%B2%9F%20%EC%84%A4%EC%A0%95-1)">10분만에 끝내는 EC2 생성, NGINX 구성, SSL적용</a>
+        </div>
+
+        <hr class="major"/>
+        <p>Posted on 2025.02.21</p>
+
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-phone">+82-10-6868-1358</li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>
