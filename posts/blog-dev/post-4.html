@@ -1,0 +1,227 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <!-- Content -->
+      <section>
+        <header class="main">
+          <h2>Websocket 보안 방식 변경 방법 2</h2>
+        </header>
+        <hr class="major" />
+          <p>저번 포스팅에서 했던 웹소켓 보안 방식에 치명적인 결함을 발견하여 보안 방식을 업데이트 하기로 했다.</p>
+          <p>웹소켓 보안 방식 업데이트: 쿠키 방식 도입.</p>
+
+        <hr class="major" />
+        <dl>
+            <h4>기존 방식 (첫 메시지 헤더 방식)의 문제점</h4>
+            <dt>구현:</dt>
+            <dd>
+                <ul>
+                    <li>웹소켓 연결을 열고, 첫 메시지 헤더에 토큰을 보내 인증 수행.</li>
+                </ul>
+            </dd>
+            <dt>발견된 취약점:</dt>
+            <dd>
+                <ul>
+                    <li>Postman 같은 도구로 웹소켓을 임의로 연결하고 <code>/user/queue</code>를 구독하면 보안이 뚫리는 치명적 결함 발견.</li>
+                    <li>누구나 연결 후 메시지를 보낼 수 있어 인증 우회 가능성 존재.</li>
+                </ul>
+            </dd>
+            <dt>추가 문제:</dt>
+            <dd>
+                <ul>
+                    <li>웹소켓 통신 헤더에 토큰을 넣는 방식은 권장되지 않음 (개발자 커뮤니티 및 다수 문서 확인).</li>
+                    <li>URL에 쿼리 파라미터로 토큰을 노출시키는 방식도 고민했으나, 보안상 여전히 취약.</li>
+                </ul>
+            </dd>
+        </dl>
+
+          <hr class="major"/>
+        <dl>
+            <h4>새로운 방식: 쿠키 기반 인증</h4>
+            <dt>1. 쿠키 생성 및 전달</dt>
+            <dd>
+                <ul>
+                    <li>유저가 처음 로그인 시, 서버에서 토큰을 생성하고 이를 쿠키에 저장.</li>
+                    <li>이 쿠키를 클라이언트에게 전달</li>
+                    <li>쿠키는 모든 후속 요청(HTTP 및 웹소켓)에 자동으로 포함되어 서버로 전송됨.</li>
+                </ul>
+            </dd>
+            <dt>2. 웹소켓 인터셉터 부활</dt>
+            <dd>
+                <ul>
+                    <li>웹소켓 연결 시 인터셉터 <code>HandshakeInterceptor</code>를 다시 활성화.</li>
+                    <li>인터셉터에서 <code>HttpServletRequest.getCookies()</code>로 쿠키를 읽고, 토큰을 추출해 검증 (예: <code>JwtUtil</code> 사용).</li>
+                    <li>토큰이 유효하면 웹소켓 연결 허용, 그렇지 않으면 연결 차단.</li>
+                </ul>
+            </dd>
+            <dt>3. 인증 흐름</dt>
+            <dd>
+                <ul>
+                    <li>클라이언트는 별도로 토큰을 관리하거나 전송할 필요 없이, 쿠키만으로 인증.</li>
+                    <li>서버는 연결 시점에서 쿠키를 확인해 즉시 인증 여부 결정.</li>
+                </ul>
+            </dd>
+        </dl>
+          <hr class="major"/>
+        <dl>
+          <h4>장점</h4>
+            <dt>보안 강화:</dt>
+            <dd>
+                <ul>
+                    <li>토큰이 URL이나 메시지 헤더에 노출되지 않음.</li>
+                    <li>Postman 같은 도구로 임의 연결해도 쿠키 없이는 인증 불가.</li>
+                </ul>
+            </dd>
+            <dt>클라이언트 간소화:</dt>
+            <dd>
+                <ul>
+                    <li><code>localStorage</code>에 토큰 저장 불필요 → 클라이언트 코드 단순화 및 XSS 위험 감소.</li>
+                    <li>Postman 같은 도구로 임의 연결해도 쿠키 없이는 인증 불가.</li>
+                </ul>
+            </dd>
+            <dt>필터 간소화:</dt>
+            <dd>
+                <ul>
+                    <li>HTTP 요청 필터<code>JwtFilter</code>에서도 헤더 대신 쿠키로 토큰 확인 가능 → 토큰 전송 방식 통일.</li>
+                </ul>
+            </dd>
+            <dt>자동화:</dt>
+            <dd>
+                <ul>
+                    <li>쿠키는 브라우저에서 자동으로 관리되므로, 매 요청마다 토큰을 수동으로 붙일 필요 없음.</li>
+                </ul>
+            </dd>
+
+        </dl>
+          <hr class="major"/>
+
+          <dl>
+              <h4>결론</h4>
+              <dd>
+                  <ul>
+                      <li>변경 전: 첫 메시지 헤더 방식 → 취약점 노출, 비권장 방식.</li>
+                      <li>변경 후: 쿠키 기반 + 인터셉터 → 보안성↑, 편리성↑, 통일성↑.</li>
+                      <li>결과: 웹소켓과 HTTP 모두 쿠키로 인증 처리, 클라이언트 로직 단순화, 보안 결함 해결.</li>
+                  </ul>
+              </dd>
+
+          </dl>
+
+
+
+        </br>
+
+
+
+        <hr class="major"/>
+        <p>Posted on 2025.02.21</p>
+
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-phone">+82-10-6868-1358</li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>

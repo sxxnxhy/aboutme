@@ -1,0 +1,217 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <!-- Content -->
+      <section>
+        <header class="main">
+          <h2>Websocket 보안 방식 변경 방법 1</h2>
+        </header>
+        <hr class="major" />
+          <p>WebSocket을 이용해 나만의 카카오톡을 개발하던 중, 보안상의 큰 문제를 발견했다. WebSocket 주소만 알고 있으면 누구나 연결을 시도할 수 있고, 특정 채팅방에 구독할 수도 있다는 점이었다. 이는 심각한 보안 취약점이 될 수 있기 때문에, WebSocket 연결 과정에서 인증을 거치도록 해야 했다.</p>
+          <p>현재 JWT를 사용하고 있으므로, WebSocket 연결 시 인터셉터를 적용해 핸드셰이크 단계에서 토큰을 검증하는 방식으로 보안을 강화하기로 했다. 하지만 WebSocket은 Spring Security의 기본 인증 기능을 지원하지 않기 때문에, 저장된 로그인 정보를 직접 조회할 수 없었다. 따라서 클라이언트가 WebSocket 연결 요청을 보낼 때, 헤더에 JWT를 포함시켜 인터셉터에서 이를 검증하는 방식을 시도했다.</p>
+          <p>그러나 예상과 달리 WebSocket 연결 요청의 헤더에는 임의의 토큰이나 기타 데이터를 포함할 수 없었다. 이는 보안상의 이유로 브라우저에서 제한한 사항이었다. 이에 대한 해결책을 찾아본 결과, 일반적으로 쿼리 파라미터에 토큰을 포함한 후, 인터셉터에서 이를 추출해 검증하는 방식이 사용된다는 것을 알게 되었다.</p>
+          <p>하지만 이 방식은 보안적으로 취약하다. 요청 URL이 서버 로그에 남거나 네트워크를 통해 노출될 가능성이 있어, 토큰이 쉽게 탈취될 위험이 있기 때문이다. 이에 대한 보완책을 고민한 끝에, 보다 안전한 WebSocket 인증 방식을 구현하기로 했다.</p>
+        <hr class="major" />
+        <dl>
+            <h4>기존 방식</h4>
+            <dt>구현:</dt>
+            <dd>
+                <ul>
+                    <li>웹소켓 연결 시 URL에 토큰을 포함해서 전송. 예: <code>ws://example.com?token=토큰값</code></li>
+                </ul>
+
+            </dd>
+            <dt>문제점:</dt>
+            <dd>
+                <ul>
+                    <li>웹소켓은 기본적으로 HTTP 헤더에 토큰을 넣는 방식 지원이 제한적이라 URL로 전달했음.</li>
+                    <li>URL에 토큰이 노출되면서 보안 취약점 발생 (쉽게 캡처되거나 로그에 남을 가능성 높음).</li>
+                </ul>
+            </dd>
+        </dl>
+
+          <hr class="major"/>
+        <dl>
+            <h4>변경된 방식</h4>
+            <dt>1. 웹소켓 연결</dt>
+            <dd>
+                <ul>
+                    <li>연결 시 토큰 없이 누구나 웹소켓 연결 가능하도록 설정 (인터셉터 제거).</li>
+                    <li>초기 연결은 단순히 소켓을 열기만 하는 단계로 제한.</li>
+                </ul>
+            </dd>
+            <dt>2. 첫 메시지로 토큰 전송</dt>
+            <dd>
+                <ul>
+                    <li>클라이언트가 <code>/user/queue</code>를 구독 후, 첫 메시지로 헤더에 토큰을 포함해 서버로 전송.</li>
+                    <li>URL에 토큰이 노출되면서 보안 취약점 발생 (쉽게 캡처되거나 로그에 남을 가능성 높음).</li>
+                </ul>
+            </dd>
+            <dt>3. 토큰 유효성 검증</dt>
+            <dd>
+                <ul>
+                    <li>서버는 수신한 메시지의 헤더에서 토큰을 추출해 유효성을 확인 (예: <code>JwtUtil</code>로 검증)</li>
+                    <li>검증 결과에 따라 클라이언트로 <code>"authenticated"</code> 또는 <code>"unauthenticated"</code> 메시지 응답.</li>
+                </ul>
+            </dd>
+            <dt>4. 인증 후 처리</dt>
+            <code>"authenticated"</code> 경우:
+            <dd>
+                    <ul>
+                        <li>채팅 히스토리 로드 로직 실행.</li>
+                        <li>해당 유저가 채팅방에 초대된 멤버인지 추가 확인 (DB 조회 등).</li>
+                        <li>초대된 유저라면 채팅방 구독 허용, 메시지 송수신 시작.</li>
+                    </ul>
+            </dd>
+            <code>"unauthenticated"</code> 경우:
+            <dd>
+                <ul>
+                    <li>"Access Denied" 응답 후 연결 종료 또는 제한.</li>
+                </ul>
+            </dd>
+
+        </dl>
+          <hr class="major"/>
+        <dl>
+          <h4>장점</h4>
+            <dd>
+                <ul>
+                    <li>토큰이 URL에 노출되지 않아 보안성 향상.</li>
+                    <li>초기 연결은 가볍게 유지하며, 인증은 메시지 기반으로 처리해 유연성 확보.</li>
+                    <li>채팅방 접근 권한을 토큰 유효성 + 멤버십 확인으로 이중 체크.</li>
+                </ul>
+            </dd>
+
+        </dl>
+          <hr class="major"/>
+
+          <dl>
+              <h4>요약</h4>
+              <dd>
+                  <ul>
+                      <li>기존: URL에 토큰 포함 → 노출 위험.</li>
+                      <li>변경: 연결 자유 → 첫 메시지로 토큰 전송 → 유효성 확인 → 권한 체크 → 구독 허용/거부.</li>
+                      <li>결과: 보안 강화, 인증 로직 명확화, 채팅방 접근 제어 개선.</li>
+                  </ul>
+              </dd>
+
+          </dl>
+
+
+
+        </br>
+
+
+
+        <hr class="major"/>
+        <p>Posted on 2025.02.21</p>
+
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-phone">+82-10-6868-1358</li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>
