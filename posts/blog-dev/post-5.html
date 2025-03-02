@@ -1,0 +1,270 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <!-- Content -->
+      <section>
+        <header class="main">
+          <h2>Redis 기반 채팅 메시지 저장 및 성능 개선</h2>
+        </header>
+        <hr class="major" />
+        <p>Redis를 활용해 채팅 메시지 저장 성능을 개선하고 MySQL 과부하를 방지.</p>
+
+        <hr class="major" />
+        <dl>
+          <h4>기존 문제점: MySQL 과부하 우려</h4>
+          <dt>문제:</dt>
+          <dd>
+            <ul>
+              <li>메시지가 생성될 때마다 MySQL에 즉시 저장, 메시지량 증가 시 빈번한 DB 쓰기로 과부하 발생 가능.</li>
+            </ul>
+          </dd>
+          <dt>목표:</dt>
+          <dd>
+            <ul>
+              <li>실시간 처리 유지하면서 DB 부담 줄이기.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>Redis 도입으로 성능 개선</h4>
+          <dt>Redis 버퍼링:</dt>
+          <dd>
+            <ul>
+              <li>새 메시지를 Redis에 저장 (키: <code>"message_queue:<chatRoomId>"</code>) → MySQL 쓰기 지연.</li>
+            </ul>
+          </dd>
+          <dt>빠른 처리:</dt>
+          <dd>
+            <ul>
+              <li>Redis의 인메모리 특성으로 메시지 저장 속도 향상, 실시간성 확보.</li>
+            </ul>
+          </dd>
+          <dt>추가 활용:</dt>
+          <dd>
+            <ul>
+              <li>메시지뿐만 아니라 유저-채팅방 관계 캐싱 (키: <code>"user_chatrooms:<userId>"</code>, <code>"chatroom_users:<chatRoomId>"</code>).</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>스케줄링으로 MySQL 동기화</h4>
+          <dt>주기적 동기화:</dt>
+          <dd>
+            <ul>
+              <li><code>@Scheduled</code>로 10초마다 Redis의 <code>"message_queue:<chatRoomId>"</code> 메시지를 MySQL에 배치 저장.</li>
+            </ul>
+          </dd>
+          <dt>배치 처리:</dt>
+          <dd>
+            <ul>
+              <li>개별 메시지마다 DB 쓰기 대신 일정 간격으로 묶어 저장 → 쓰기 요청 횟수 감소.</li>
+            </ul>
+          </dd>
+          <dt>삭제:</dt>
+          <dd>
+            <ul>
+              <li>MySQL 저장 후 해당 <code>chatRoomId</code>의 Redis 큐 삭제 (<code>removePendingMessage</code>).</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>동작 방식</h4>
+          <dt>메시지 전송:</dt>
+          <dd>
+            <ul>
+              <li>클라이언트가 메시지 전송 → <code>MessageDto</code>를 Redis에 저장 (<code>addPendingMessage</code>).</li>
+              <li><code>chatRoomId</code>의 유저 목록 조회 (<code>"chatroom_users:<chatRoomId>"</code>) → WebSocket으로 실시간 알림.</li>
+            </ul>
+          </dd>
+          <dt>동기화:</dt>
+          <dd>
+            <ul>
+              <li>10초마다 Redis의 pending 메시지를 MySQL에 저장 (<code>syncMessagesByUserId</code> 등).</li>
+              <li>저장 후 Redis에서 삭제 (<code>removePendingMessage</code>).</li>
+            </ul>
+          </dd>
+          <dt>채팅 로드:</dt>
+          <dd>
+            <ul>
+              <li>Redis 체크 후 pending 메시지 있으면 MySQL 동기화, 이후 MySQL에서 전체 메시지 조회.</li>
+            </ul>
+          </dd>
+          <dt>채팅 목록:</dt>
+          <dd>
+            <ul>
+              <li>유저 입장 시 <code>getChatRoomIdsByUserId</code>로 <code>"user_chatrooms:<userId>"</code> 조회 → 신규 채팅방 포함.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>신규 채팅방 문제 해결</h4>
+          <dt>문제:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방 생성 시 Redis에 등록 안 됨 → <code>getChatRoomIdsByUserId</code>, <code>getUserIdsByChatRoomId</code>에서 누락.</li>
+            </ul>
+          </dd>
+          <dt>해결:</dt>
+          <dd>
+            <ul>
+              <li>생성 시 <code>addChatRoomIdsAndUserIds(userId, chatRoomId)</code> 호출 → <code>"user_chatrooms:<userId>"</code>와 <code>"chatroom_users:<chatRoomId>"</code> 즉시 업데이트.</li>
+            </ul>
+          </dd>
+          <dt>결과:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방도 Redis에 반영, 정상 조회 및 알림 동작.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>요약</h4>
+          <dt>문제 해결:</dt>
+          <dd>
+            <ul>
+              <li>메시지량 증가로 인한 MySQL 과부하 방지, 신규 채팅방 캐싱 문제 해결.</li>
+            </ul>
+          </dd>
+          <dt>Redis:</dt>
+          <dd>
+            <ul>
+              <li><code>"message_queue:<chatRoomId>"</code>로 메시지 버퍼링, DB 쓰기 지연.</li>
+              <li><code>"user_chatrooms:<userId>"</code>, <code>"chatroom_users:<chatRoomId>"</code>로 관계 캐싱.</li>
+            </ul>
+          </dd>
+          <dt>스케줄링:</dt>
+          <dd>
+            <ul>
+              <li>10초 주기 배치 동기화로 쓰기 부하 감소.</li>
+            </ul>
+          </dd>
+          <dt>결과:</dt>
+          <dd>
+            <ul>
+              <li>실시간 메시지 처리, 알림, 채팅 목록 업데이트와 DB 성능 최적화를 모두 달성.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <br />
+        <hr class="major" />
+        <p>Posted on 2025.03.01</p>
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-phone">+82-10-6868-1358</li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>

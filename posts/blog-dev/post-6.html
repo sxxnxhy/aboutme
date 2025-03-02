@@ -1,0 +1,289 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <!-- Content -->
+      <section>
+        <header class="main">
+          <h2>Redis 기반 채팅 리스트 읽음/읽지 않음 알림 시스템</h2>
+        </header>
+        <hr class="major" />
+        <p>Redis로 채팅 리스트의 읽음/읽지 않음 상태를 실시간 관리.</p>
+
+        <hr class="major" />
+        <dl>
+          <h4>목표</h4>
+          <dd>
+            <ul>
+              <li>채팅 리스트에서 각 채팅방의 읽은/읽지 않은 메시지를 실시간으로 표시.</li>
+              <li>메시지량 증가 시 MySQL 과부하 방지 및 빠른 상태 업데이트를 위해 Redis 활용.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>프론트엔드 유저 액티비티 트래킹</h4>
+          <dt>상태 변수:</dt>
+          <dd>
+            <ul>
+              <li><code>isActive</code> 플래그로 유저의 활성 상태 관리.</li>
+            </ul>
+          </dd>
+          <dt>이벤트 감지:</dt>
+          <dd>
+            <ul>
+              <li>채팅방 입장: 처음 입장 시 활성 상태 설정.</li>
+              <li>창 닫기/탭 전환: <code>visibilitychange</code>, <code>blur</code>, <code>focus</code>, <code>beforeunload</code> 이벤트로 비활성/활성 전환.</li>
+              <li>기타: 앱 클릭, 브라우저 최소화, 페이지 이동 등 감지.</li>
+            </ul>
+          </dd>
+          <dt>WebSocket 전송:</dt>
+          <dd>
+            <ul>
+              <li>활성 시: <code>/app/user-active</code>로 <code>chatRoomId</code>, <code>userId</code> 전송.</li>
+              <li>비활성 시: <code>/app/user-inactive</code>로 동일 데이터 전송.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>Redis로 실시간 상태 관리</h4>
+          <dt>키 구조:</dt>
+          <dd>
+            <ul>
+              <li><code>"lastReadTimer:<userId>:<chatRoomId>"</code> → <code>ChatRoomUserDTO</code>로 유저의 마지막 읽음 타임스탬프 저장.</li>
+            </ul>
+          </dd>
+          <dt>동작:</dt>
+          <dd>
+            <ul>
+              <li>유저 활성화: <code>/app/user-active</code> 수신 → Redis에 <code>ChatRoomUserDTO</code> 저장 (<code>addPendingLastReadAt</code>), 현재 타임스탬프 갱신.</li>
+              <li>유저 비활성화: <code>/app/user-inactive</code> 수신 → Redis에 타임스탬프 갱신.</li>
+              <li>읽음 기준: <code>ChatRoomUserDTO.lastReadAt</code>과 메시지의 <code>enrolledAt</code> 비교로 읽음/읽지 않음 판단.</li>
+            </ul>
+          </dd>
+          <dt>변경점:</dt>
+          <dd>
+            <ul>
+              <li>기존 단순 타임스탬프 대신 <code>ChatRoomUserDTO</code>로 데이터 구조화.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>MySQL 동기화 및 정리</h4>
+          <dt>세션 종료 시:</dt>
+          <dd>
+            <ul>
+              <li><code>SessionDisconnectEvent</code> 발생 → Redis의 <code>"lastReadTimer:<userId>:*"</code> 데이터를 MySQL에 반영 후 삭제 (<code>removePendingLastReadAt</code>).</li>
+            </ul>
+          </dd>
+          <dt>활성 데이터 조회:</dt>
+          <dd>
+            <ul>
+              <li><code>SimpMessageHeaderAccessor</code>로 <code>sessionId</code>에서 <code>userId</code> 추출, Redis 데이터 매핑.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>동작 방식</h4>
+          <dt>유저 입장:</dt>
+          <dd>
+            <ul>
+              <li>채팅 히스토리 로드 → Redis에 <code>lastReadAt</code> 업데이트 (<code>addPendingLastReadAt</code>) → 활성 상태 표시.</li>
+            </ul>
+          </dd>
+          <dt>유저 활성화:</dt>
+          <dd>
+            <ul>
+              <li><code>/app/user-active</code> → Redis에 <code>ChatRoomUserDTO</code> 저장 → 읽음 상태 갱신.</li>
+            </ul>
+          </dd>
+          <dt>유저 비활성화:</dt>
+          <dd>
+            <ul>
+              <li><code>/app/user-inactive</code> → Redis에 타임스탬프 갱신 → 이후 메시지 읽지 않음 처리.</li>
+            </ul>
+          </dd>
+          <dt>유저 disconnection:</dt>
+          <dd>
+            <ul>
+              <li>WebSocket 이벤트 감지 → Redis 데이터 MySQL 동기화 → Redis 정리 (<code>removePendingLastReadAt</code>).</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>신규 채팅방 문제 해결</h4>
+          <dt>문제:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방 생성 시 Redis에 관계 미등록 (<code>"user_chatrooms:<userId>"</code>, <code>"chatroom_users:<chatRoomId>"</code> 누락).</li>
+            </ul>
+          </dd>
+          <dt>해결:</dt>
+          <dd>
+            <ul>
+              <li>생성 시 <code>addChatRoomIdsAndUserIds(userId, chatRoomId)</code> 호출 → Redis 즉시 업데이트.</li>
+            </ul>
+          </dd>
+          <dt>결과:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방의 읽음 상태도 정상 반영.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>요약</h4>
+          <dt>문제 해결:</dt>
+          <dd>
+            <ul>
+              <li>실시간 읽음/읽지 않음 표시, MySQL 과부하 방지, 신규 채팅방 지원.</li>
+            </ul>
+          </dd>
+          <dt>Redis:</dt>
+          <dd>
+            <ul>
+              <li><code>"lastReadTimer:<userId>:<chatRoomId>"</code>로 <code>ChatRoomUserDTO</code> 저장, 빠른 상태 관리.</li>
+            </ul>
+          </dd>
+          <dt>프론트엔드:</dt>
+          <dd>
+            <ul>
+              <li>액티비티 이벤트로 활성/비활성 트래킹, WebSocket 전송.</li>
+            </ul>
+          </dd>
+          <dt>MySQL:</dt>
+          <dd>
+            <ul>
+              <li>세션 종료 시 Redis 데이터 동기화로 영구 저장.</li>
+            </ul>
+          </dd>
+          <dt>결과:</dt>
+          <dd>
+            <ul>
+              <li>Redis로 성능 최적화, 모든 채팅방에서 실시간 읽음 상태 반영.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <br />
+        <hr class="major" />
+        <p>Posted on 2025.03.01</p>
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-phone">+82-10-6868-1358</li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>

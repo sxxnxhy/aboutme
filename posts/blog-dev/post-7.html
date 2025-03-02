@@ -1,0 +1,304 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <!-- Content -->
+      <section>
+        <header class="main">
+          <h2>Redis와 WebSocket 기반 채팅 목록 리프레시 및 알림 시스템</h2>
+        </header>
+        <hr class="major" />
+        <p>새 메시지 도착 시 채팅 목록을 실시간으로 리프레시하고 알림을 표시하는 시스템을 Redis와 WebSocket으로 구현.</p>
+
+        <hr class="major" />
+        <dl>
+          <h4>목표</h4>
+          <dd>
+            <ul>
+              <li>새 메시지 도착 시 현재 연결된 유저에게 신호를 보내 채팅 목록을 리프레시하고, 새 메시지를 빨간색 마크로 표시.</li>
+              <li>Redis로 DB 부하를 줄이고, WebSocket으로 실시간 업데이트 제공.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>WebSocket 구독 설정</h4>
+          <dt>구독 경로:</dt>
+          <dd>
+            <ul>
+              <li>클라이언트가 <code>/topic/toggle-refresh/<userId></code> 구독.</li>
+            </ul>
+          </dd>
+          <dt>역할:</dt>
+          <dd>
+            <ul>
+              <li>특정 유저(<code>userId</code>)에게 새 메시지 도착 시 리프레시 신호 전달.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>메시지 전송 및 Redis 처리</h4>
+          <dt>메시지 저장 전:</dt>
+          <dd>
+            <ul>
+              <li><code>MessageDto</code>에서 <code>chatRoomId</code> 추출.</li>
+              <li>Redis에서 해당 <code>chatRoomId</code>의 유저 목록 조회 (키: <code>"chatroom_users:<chatRoomId>"</code>).</li>
+              <li>Redis에 없으면 MySQL에서 유저 목록 가져와 캐싱 (<code>chatRoomUserRepository.findUserIdsByChatRoomId</code>).</li>
+            </ul>
+          </dd>
+          <dt>효과:</dt>
+          <dd>
+            <ul>
+              <li>Redis를 통해 채팅방 유저 조회로 MySQL 부하 감소.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>리프레시 요청 및 알림 표시</h4>
+          <dt>리프레시 신호:</dt>
+          <dd>
+            <ul>
+              <li>메시지 저장 후 WebSocket으로 <code>/topic/toggle-refresh/<userId></code>에 신호 전송.</li>
+            </ul>
+          </dd>
+          <dt>클라이언트 반응:</dt>
+          <dd>
+            <ul>
+              <li>구독 중인 유저의 채팅 목록이 리프레시되고, 새 메시지에 빨간색 마크 표시.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>동작 방식</h4>
+          <dt>유저 구독:</dt>
+          <dd>
+            <ul>
+              <li>클라이언트가 <code>/topic/toggle-refresh/<userId></code> 구독 → 알림 대기.</li>
+            </ul>
+          </dd>
+          <dt>메시지 전송:</dt>
+          <dd>
+            <ul>
+              <li>클라이언트가 메시지 전송 → <code>MessageDto</code>에서 <code>chatRoomId</code> 추출.</li>
+              <li>Redis에서 <code>"chatroom_users:<chatRoomId>"</code> 조회 → 없으면 DB에서 캐싱.</li>
+              <li>Redis에 메시지 저장 (키: <code>"message_queue:<chatRoomId>"</code>).</li>
+            </ul>
+          </dd>
+          <dt>알림 전달:</dt>
+          <dd>
+            <ul>
+              <li><code>chatRoomId</code>의 각 <code>userId</code>에 대해 <code>/topic/toggle-refresh/<userId></code>로 신호 전송.</li>
+              <li>연결된 유저의 채팅 목록 리프레시 → 새 메시지 표시.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>디테일한 흐름</h4>
+          <dt>Redis 키 구조:</dt>
+          <dd>
+            <ul>
+              <li><code>"user_chatrooms:<userId>"</code>: 유저가 속한 <code>chatRoomId</code> 목록 (Redis Set).</li>
+              <li><code>"chatroom_users:<chatRoomId>"</code>: 채팅방에 속한 <code>userId</code> 목록 (Redis Set).</li>
+              <li><code>"message_queue:<chatRoomId>"</code>: 미처리 메시지 저장 (Redis List).</li>
+            </ul>
+          </dd>
+          <dt>캐싱 로직:</dt>
+          <dd>
+            <ul>
+              <li>Redis에 <code>"chatroom_users:<chatRoomId>"</code> 없으면 DB에서 조회 후 캐싱 (<code>SADD</code>).</li>
+              <li><code>"user_chatrooms:<userId>"</code>도 동일: DB에서 <code>chatRoomIds</code> 가져와 캐싱.</li>
+            </ul>
+          </dd>
+          <dt>WebSocket 메시지:</dt>
+          <dd>
+            <ul>
+              <li><code>/topic/toggle-refresh/<userId></code>로 간단한 신호 전송 (예: <code>{ "chatRoomId": 123, "newMessage": true }</code>).</li>
+            </ul>
+          </dd>
+          <dt>클라이언트 UI:</dt>
+          <dd>
+            <ul>
+              <li>리프레시 후 새 메시지 항목에 빨간색 마크 추가.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>문제 및 해결: 신규 채팅방 등록</h4>
+          <dt>문제:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방 생성 시 Redis에 등록되지 않아 <code>getChatRoomIdsByUserId</code>와 <code>getUserIdsByChatRoomId</code>에서 누락.</li>
+            </ul>
+          </dd>
+          <dt>원인:</dt>
+          <dd>
+            <ul>
+              <li><code>addChatRoomIdsAndUserIds</code>가 생성 시 호출되지 않음.</li>
+            </ul>
+          </dd>
+          <dt>해결:</dt>
+          <dd>
+            <ul>
+              <li>채팅방 생성 시 각 유저에 대해 <code>addChatRoomIdsAndUserIds(userId, chatRoomId)</code> 호출.</li>
+              <li>Redis에 <code>"user_chatrooms:<userId>"</code>와 <code>"chatroom_users:<chatRoomId>"</code> 즉시 업데이트.</li>
+            </ul>
+          </dd>
+          <dt>결과:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방이 Redis에 등록되고, 관련 키에서 정상 조회됨.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>요약</h4>
+          <dt>문제 해결:</dt>
+          <dd>
+            <ul>
+              <li>신규 채팅방 포함 실시간 알림, MySQL 부하 감소.</li>
+            </ul>
+          </dd>
+          <dt>Redis:</dt>
+          <dd>
+            <ul>
+              <li><code>"chatroom_users:<chatRoomId>"</code>와 <code>"user_chatrooms:<userId>"</code>로 유저-채팅방 관계 캐싱, 메시지 큐로 성능 최적화.</li>
+            </ul>
+          </dd>
+          <dt>WebSocket:</dt>
+          <dd>
+            <ul>
+              <li><code>/topic/toggle-refresh/<userId></code>로 실시간 신호 전달.</li>
+            </ul>
+          </dd>
+          <dt>결과:</dt>
+          <dd>
+            <ul>
+              <li>모든 채팅방(기존+신규)에 대해 즉각적인 알림과 UI 업데이트 제공.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <br />
+        <hr class="major" />
+        <p>Posted on 2025.03.01</p>
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-phone">+82-10-6868-1358</li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>
