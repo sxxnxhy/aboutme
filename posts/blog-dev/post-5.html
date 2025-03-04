@@ -59,6 +59,14 @@
           <dd>
             <ul>
               <li>새 메시지를 Redis에 저장 (키: <code>"message_queue:<chatRoomId>"</code>) → MySQL 쓰기 지연.</li>
+              <pre>
+                <code>public void addPendingMessage(MessageDTO messageDTO) throws Exception {
+        String key = "message_queue:" + messageDTO.getChatRoomId();
+        redisTemplate.opsForList().rightPush(key, messageDTO); // Add to end
+
+        //toggle refresh to all users of that chatroom that is in the chat list
+        notificationService.toggleRefresh(getUserIdsByChatRoomId(messageDTO.getChatRoomId()));
+    }</code></pre>
             </ul>
           </dd>
           <dt>빠른 처리:</dt>
@@ -72,6 +80,39 @@
             <ul>
               <li>메시지뿐만 아니라 유저-채팅방 관계 캐싱 (키: <code>"user_chatrooms:<userId>"</code>, <code>"chatroom_users:<chatRoomId>"</code>).</li>
             </ul>
+            <pre>
+              <code>//두가지로 나눈 이유는 유저의 입장, 채팅방의 입장. 따로 저장해야 찾기가 쉬워짐. 쿼리가 그나마 덜 복잡해짐 -> 성능 개선 예상.
+public void addChatRoomIdsAndUserIds(Integer userId, Long chatRoomId) {
+        String keyForUserId = "user_chatrooms:" + userId;
+        Set<Long> chatRoomIds = chatRoomIdRedisTemplate.opsForSet().members(keyForUserId);
+        //레디스에 없으면 디비에서 불러오기.(expired 되어서 없어짐)
+        if (chatRoomIds == null || chatRoomIds.isEmpty()) {
+            List<Long> dbChatRoomIds = chatRoomUserRepository.findChatRoomIdsByUserId(userId);
+            chatRoomIdRedisTemplate.opsForSet().add(keyForUserId, dbChatRoomIds.toArray(new Long[0]));
+            chatRoomIdRedisTemplate.expire(keyForUserId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+            log.info("Cached {} chat room IDs for user {} in Redis with 24-hour expiry", dbChatRoomIds.size(), userId);
+    }
+        // Add chatRoomId to user's set
+        chatRoomIdRedisTemplate.opsForSet().add(keyForUserId, chatRoomId);
+        chatRoomIdRedisTemplate.expire(keyForUserId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+        log.info("Added chatRoomId {} to user {} in Redis with 24-hour expiry", chatRoomId, userId);
+
+
+        String keyForChatRoomId = "chatroom_users:" + chatRoomId;
+        Set<Integer> userIds = userIdRedisTemplate.opsForSet().members(keyForChatRoomId);
+        //레디스에 없으면 디비에서 불러오기.(expired 되어서 없어짐)
+        if (userIds == null || userIds.isEmpty()) {
+            List<Integer> dbUserIds = chatRoomUserRepository.findUserIdsByChatRoomId(chatRoomId);
+            userIdRedisTemplate.opsForSet().add(keyForChatRoomId, dbUserIds.toArray(new Integer[0]));
+            userIdRedisTemplate.expire(keyForChatRoomId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+            log.info("Cached {} user IDs for chat room {} in Redis with 24-hour expiry", dbUserIds.size(), chatRoomId);
+        }
+
+        // Add userId to chat room's set
+        userIdRedisTemplate.opsForSet().add(keyForChatRoomId, userId);
+        userIdRedisTemplate.expire(keyForChatRoomId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+        log.info("Added userId {} to chatRoomId {} in Redis with 24-hour expiry", userId, chatRoomId);
+    }</code></pre>
           </dd>
         </dl>
 
@@ -81,7 +122,36 @@
           <dt>주기적 동기화:</dt>
           <dd>
             <ul>
-              <li><code>@Scheduled</code>로 10초마다 Redis의 <code>"message_queue:<chatRoomId>"</code> 메시지를 MySQL에 배치 저장.</li>
+              <li><code>@Scheduled</code>로 30분마다 Redis의 <code>"message_queue:<chatRoomId>"</code> 메시지를 MySQL에 배치 저장.</li>
+              <pre><code>@Transactional
+@Scheduled(fixedRate = 1800000) // 30 minutes
+    public void syncAllMessages() {
+        List<MessageDTO> pendingMessages = redisService.getAllPendingMessages();
+        if (pendingMessages.isEmpty()) {
+            log.info("스케쥴러 실행. 전체 싱크할 메세지 없음");
+            return;
+        }
+        List<Message> messages = pendingMessages.stream()
+                .map(dto -> {
+                    Message message = new Message();
+                    message.setChatRoom(chatRoomService.getChatRoomById(dto.getChatRoomId()));
+                    // Handle system messages (senderId = 0 or null)
+                    if (dto.getSenderId() == null || dto.getSenderId() == 0) {
+                        message.setUser(null); // System message
+                    } else {
+                        message.setUser(userService.getUserById(dto.getSenderId()));
+                    }
+                    message.setContent(dto.getContent());
+                    message.setEnrolledAt(dto.getEnrolledAt());
+                    return message;
+                })
+                .toList();
+        messageRepository.saveAll(messages);
+        log.info("스캐줄러 Sync all messages 레디스 전체 메세지 싱크 완료");
+        redisService.removeAllPendingMessages();
+    }
+
+              </code></pre>
             </ul>
           </dd>
           <dt>배치 처리:</dt>

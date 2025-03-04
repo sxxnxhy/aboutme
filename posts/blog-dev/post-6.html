@@ -60,13 +60,36 @@
               <li>채팅방 입장: 처음 입장 시 활성 상태 설정.</li>
               <li>창 닫기/탭 전환: <code>visibilitychange</code>, <code>blur</code>, <code>focus</code>, <code>beforeunload</code> 이벤트로 비활성/활성 전환.</li>
               <li>기타: 앱 클릭, 브라우저 최소화, 페이지 이동 등 감지.</li>
+              <pre><code>document.addEventListener("visibilitychange", () => {
+          document.hidden ? setUserInactive() : setUserActive();
+        });
+        window.addEventListener("blur", setUserInactive);
+        window.addEventListener("focus", setUserActive);
+        window.addEventListener("beforeunload", setUserInactive);
+      }</code></pre>
             </ul>
           </dd>
           <dt>WebSocket 전송:</dt>
           <dd>
             <ul>
               <li>활성 시: <code>/app/user-active</code>로 <code>chatRoomId</code>, <code>userId</code> 전송.</li>
+              <pre><code>function setUserActive() {
+        if (isActive) return;
+        isActive = true;
+        stompClient.publish({
+          destination: "/app/user-active",
+          body: JSON.stringify({ "chatRoomId": chatRoomId, "userId": userId })
+        });
+      }</code></pre>
               <li>비활성 시: <code>/app/user-inactive</code>로 동일 데이터 전송.</li>
+              <pre><code>function setUserInactive() {
+        if (!isActive) return;
+        isActive = false;
+        stompClient.publish({
+          destination: "/app/user-inactive",
+          body: JSON.stringify({ "chatRoomId": chatRoomId, "userId": userId })
+        });
+      }</code></pre>
             </ul>
           </dd>
         </dl>
@@ -85,6 +108,15 @@
             <ul>
               <li>유저 활성화: <code>/app/user-active</code> 수신 → Redis에 <code>ChatRoomUserDTO</code> 저장 (<code>addPendingLastReadAt</code>), 현재 타임스탬프 갱신.</li>
               <li>유저 비활성화: <code>/app/user-inactive</code> 수신 → Redis에 타임스탬프 갱신.</li>
+              <pre><code>public void addPendingLastReadAt(ChatRoomUserDTO chatRoomUserDto) {
+        String key = "lastReadTimer:" + chatRoomUserDto.getUserId() + ":" + chatRoomUserDto.getChatRoomId();
+        chatRoomUserRedisTemplate.opsForValue().set(key, chatRoomUserDto);
+        log.info("마지막 접속 시간: {}, 유저id: {}, 챗id: {}",
+                chatRoomUserDto.getLastReadAt(),
+                chatRoomUserDto.getUserId(),
+                chatRoomUserDto.getChatRoomId());
+    }
+              </code></pre>
               <li>읽음 기준: <code>ChatRoomUserDTO.lastReadAt</code>과 메시지의 <code>enrolledAt</code> 비교로 읽음/읽지 않음 판단.</li>
             </ul>
           </dd>
@@ -155,6 +187,38 @@
           <dd>
             <ul>
               <li>생성 시 <code>addChatRoomIdsAndUserIds(userId, chatRoomId)</code> 호출 → Redis 즉시 업데이트.</li>
+              <pre><code>public void addChatRoomIdsAndUserIds(Integer userId, Long chatRoomId) {
+        String keyForUserId = "user_chatrooms:" + userId;
+        Set<Long> chatRoomIds = chatRoomIdRedisTemplate.opsForSet().members(keyForUserId);
+        //레디스에 없으면 디비에서 불러오기.(expired 되어서 없어짐)
+        if (chatRoomIds == null || chatRoomIds.isEmpty()) {
+            List<Long> dbChatRoomIds = chatRoomUserRepository.findChatRoomIdsByUserId(userId);
+            chatRoomIdRedisTemplate.opsForSet().add(keyForUserId, dbChatRoomIds.toArray(new Long[0]));
+            chatRoomIdRedisTemplate.expire(keyForUserId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+            log.info("Cached {} chat room IDs for user {} in Redis with 24-hour expiry", dbChatRoomIds.size(), userId);
+        }
+        // Add chatRoomId to user's set
+        chatRoomIdRedisTemplate.opsForSet().add(keyForUserId, chatRoomId);
+        chatRoomIdRedisTemplate.expire(keyForUserId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+        log.info("Added chatRoomId {} to user {} in Redis with 24-hour expiry", chatRoomId, userId);
+
+
+        String keyForChatRoomId = "chatroom_users:" + chatRoomId;
+        Set<Integer> userIds = userIdRedisTemplate.opsForSet().members(keyForChatRoomId);
+        //레디스에 없으면 디비에서 불러오기.(expired 되어서 없어짐)
+        if (userIds == null || userIds.isEmpty()) {
+            List<Integer> dbUserIds = chatRoomUserRepository.findUserIdsByChatRoomId(chatRoomId);
+            userIdRedisTemplate.opsForSet().add(keyForChatRoomId, dbUserIds.toArray(new Integer[0]));
+            userIdRedisTemplate.expire(keyForChatRoomId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+            log.info("Cached {} user IDs for chat room {} in Redis with 24-hour expiry", dbUserIds.size(), chatRoomId);
+        }
+
+        // Add userId to chat room's set
+        userIdRedisTemplate.opsForSet().add(keyForChatRoomId, userId);
+        userIdRedisTemplate.expire(keyForChatRoomId, 24 * 60 * 60, TimeUnit.SECONDS); // 24 hours TTL
+        log.info("Added userId {} to chatRoomId {} in Redis with 24-hour expiry", userId, chatRoomId);
+    }
+              </code></pre>
             </ul>
           </dd>
           <dt>결과:</dt>

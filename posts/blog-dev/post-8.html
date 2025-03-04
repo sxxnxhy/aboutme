@@ -1,0 +1,377 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <section>
+        <header class="main">
+          <h2>Spring WebSocket에서 @AuthenticationPrincipal이 null인 것 해결하기</h2>
+        </header>
+        <hr class="major" />
+        <p>Spring WebSocket과 STOMP 메시징을 사용해 JWT 인증 기반 개인 채팅 기능을 구현하던 중, <code>@MessageMapping("/private-message")</code> 핸들러에서 <code>@AuthenticationPrincipal CustomUserDetails userDetails</code>로 인증된 유저의 username을 가져와 발신자 이름으로 설정하려 했으나, <code>userDetails.getUsername()</code>이 계속 null로 반환되는 문제를 겪었다. 데이터베이스에는 username "user1"이 분명히 존재했는데도 말이다. 간단히 끝내려던 작업이 Spring Security, WebSocket 스레딩, 그리고 예상치 못한 문제들로 이어진 깊은 탐구가 되었다. 여기 그 과정을 정리하고 해결법을 기록한다.</p>
+
+        <hr class="major" />
+        <dl>
+          <h4>문제가 발생한 부분</h4>
+          <dt>문제 시작:</dt>
+          <dd>
+            <ul>
+              <li><code>CustomUserDetailsService</code>가 데이터베이스에서 <code>username = user1</code>을 정상적으로 로드했는데도, 핸들러에서 <code>userDetails.getUsername()</code>이 null로 반환.</li>
+              <li>핸드셰이크, 메시지 채널, 핸들러 곳곳에 로그를 추가하며 원인을 파악 시작.</li>
+            </ul>
+          </dd>
+          <dt>스레딩 혼란:</dt>
+          <dd>
+            <ul>
+              <li><code>JwtHandshakeInterceptor</code>가 Authorization 쿠키의 JWT를 검증하고, 핸드셰이크 중 <code>SecurityContextHolder</code>에 <code>Authentication</code> 객체를 설정 → 여기선 잘 작동.</li>
+              <li>하지만 메시지 처리 스레드에서는 <code>SecurityContextHolder</code>가 비어 있음 (<code>InboundChannel Auth from SecurityContext: null</code>).</li>
+              <li>원인: WebSocket 핸드셰이크와 메시지 처리가 서로 다른 스레드에서 실행, <code>SecurityContextHolder</code>의 <code>ThreadLocal</code> 저장소가 자동으로 전달되지 않음.</li>
+            </ul>
+          </dd>
+          <dt>클론 문제:</dt>
+          <dd>
+            <ul>
+              <li>스레딩 문제를 해결한 후에도, <code>@AuthenticationPrincipal</code>이 제공한 <code>CustomUserDetails</code> 객체는 핸들러에서 다른 인스턴스 (<code>@1b4f09c4</code>)로 나타남 (채널에서는 <code>@40ee6a09</code>).</li>
+              <li>이 클론 객체는 <code>username = null</code>, <code>userId = null</code>로 상태 손실, 직전에 로그는 <code>Restored Username: user1</code>을 보여줬음에도 불구하고.</li>
+              <li>Spring이 <code>CustomUserDetails</code>를 재구성하며 데이터를 잃어버린 것.</li>
+            </ul>
+          </dd>
+          <dt><code>CustomUserDetails</code> 의심:</dt>
+          <dd>
+            <ul>
+              <li><code>CustomUserDetailsService</code>가 username을 정상 설정했지만, <code>CustomUserDetails</code>의 <code>getUsername()</code> 메서드나 전달 과정에서 값이 누락된 가능성.</li>
+            </ul>
+          </dd>
+          <dt>STOMP 사용자 문제:</dt>
+          <dd>
+            <ul>
+              <li>초기 설정에서 <code>Authentication</code>을 STOMP 메시지의 user 속성과 일관되게 연결하지 않아, <code>@AuthenticationPrincipal</code>이 제대로 작동하지 않음.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>해결 방법</h4>
+          <dt>스레드 간 연결:</dt>
+          <dd>
+            <ul>
+              <li><code>WebSocketConfig</code>에서 <code>ChannelInterceptor</code>를 <code>configureClientInboundChannel</code>에 추가해 핸드셰이크의 <code>Authentication</code>을 메시지 스레드로 전달:</li>
+              <pre>
+                <code>@Override
+public void configureClientInboundChannel(ChannelRegistration registration) {
+      registration.interceptors(new ChannelInterceptor() {
+            @Override
+            public Message<?> preSend(Message<?> message, MessageChannel channel) {
+                  StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
+                  Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+                  if (auth != null && accessor.getCommand() != null) {
+                      accessor.setUser(auth); // STOMP에 SecurityContext 연결
+                  }
+                  return message;
+            }
+      });
+}</code>
+              </pre>
+              <li>이로써 <code>SecurityContextHolder</code>의 <code>Authentication</code>을 STOMP 사용자에 연결, 핸들러에서 인증 정보 사용 가능.</li>
+            </ul>
+          </dd>
+          <dt><code>Principal</code>로 전환:</dt>
+          <dd>
+            <ul>
+              <li><code>@AuthenticationPrincipal CustomUserDetails</code>가 null 값 클론을 반환해, 핸들러에서 <code>Principal</code>로 변경:</li>
+              <pre>
+                <code>@MessageMapping("/private-message")
+public void sendPrivateMessage(@Payload MessageDTO messageDTO, Principal principal) throws Exception {
+      messageDTO.setSenderName(principal.getName());
+      messageDTO.setEnrolledAt(Timestamp.valueOf(LocalDateTime.now()));
+      redisService.addPendingMessage(messageDTO);
+      messagingTemplate.convertAndSend("/topic/private-chat/" + messageDTO.getChatRoomId(), messageDTO);
+}</code>
+              </pre>
+              <li><code>Principal.getName()</code>은 <code>Authentication</code>의 원본 <code>CustomUserDetails</code>에서 <code>getUsername()</code>을 호출, "user1" 정상 반환.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>최종 설정</h4>
+          <dt>핸드셰이크:</dt>
+          <dd>
+            <ul>
+              <li><code>JwtHandshakeInterceptor</code>가 JWT 검증, <code>CustomUserDetails</code> 로드, <code>SecurityContextHolder</code>와 세션 속성에 <code>Authentication</code> 설정.</li>
+            </ul>
+          </dd>
+          <dt>메시지 파이프라인:</dt>
+          <dd>
+            <ul>
+              <li><code>ChannelInterceptor</code>가 <code>Authentication</code>을 가져와 STOMP 메시지에 연결.</li>
+            </ul>
+          </dd>
+          <dt>핸들러:</dt>
+          <dd>
+            <ul>
+              <li><code>Principal</code>로 문제없이 "user1" 반환.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>작동 이유</h4>
+          <dt><code>Principal</code>의 단순성:</dt>
+          <dd>
+            <ul>
+              <li>Spring의 <code>CustomUserDetails</code> 재생성을 피하며 원본 객체의 username 유지.</li>
+            </ul>
+          </dd>
+          <dt>스레드 연결:</dt>
+          <dd>
+            <ul>
+              <li>인터셉터가 <code>Authentication</code>을 STOMP 컨텍스트로 전달, 스레드 간 이동 해결.</li>
+            </ul>
+          </dd>
+          <dt>클론 우회:</dt>
+          <dd>
+            <ul>
+              <li><code>@AuthenticationPrincipal</code> 리졸버의 username 손실 문제를 회피.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>배운 점</h4>
+          <dt>스레드의 복잡성:</dt>
+          <dd>
+            <ul>
+              <li>WebSocket은 핸드셰이크와 메시징을 다른 스레드에서 처리 → 인증 데이터 전달에 주의 필요.</li>
+            </ul>
+          </dd>
+          <dt><code>@AuthenticationPrincipal</code>의 한계:</dt>
+          <dd>
+            <ul>
+              <li>커스텀 객체에서 완벽히 설정되지 않으면 문제를 일으킬 수 있음.</li>
+            </ul>
+          </dd>
+          <dt><code>Principal</code>의 유용성:</dt>
+          <dd>
+            <ul>
+              <li>간단히 username을 얻는 가벼운 방법.</li>
+            </ul>
+          </dd>
+          <dt>로그의 중요성:</dt>
+          <dd>
+            <ul>
+              <li>핸드셰이크, 채널, 핸들러 단계별 로그로 스레딩 및 클론 문제 파악.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>앞으로의 계획</h4>
+          <dt><code>CustomUserDetails</code> 조사:</dt>
+          <dd>
+            <ul>
+              <li><code>getUsername()</code>과 직렬화 설정 점검 → 나중에 <code>@AuthenticationPrincipal</code> 재사용 가능성 탐구.</li>
+            </ul>
+          </dd>
+          <dt>견고성 강화:</dt>
+          <dd>
+            <ul>
+              <li>인터셉터가 <code>SecurityContextHolder</code>에 의존 → 속성에서 복구하는 폴백 추가 고려.</li>
+            </ul>
+          </dd>
+          <dt>일관성 확인:</dt>
+          <dd>
+            <ul>
+              <li><code>JwtFilter</code>와 <code>JwtHandshakeInterceptor</code> 간 호환성 재검토.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>최종 코드</h4>
+          <dt>WebSocket 설정:</dt>
+          <dd>
+            <ul>
+              <pre>
+                <code>@Configuration
+@EnableWebSocketMessageBroker
+@RequiredArgsConstructor
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+        private final JwtUtil jwtUtil;
+        private final CustomUserDetailsService userDetailsService;
+
+        @Override
+        public void configureMessageBroker(MessageBrokerRegistry config) {
+              config.enableSimpleBroker("/topic", "/queue");
+              config.setApplicationDestinationPrefixes("/app");
+              config.setUserDestinationPrefix("/user");
+        }
+        @Override
+        public void registerStompEndpoints(StompEndpointRegistry registry) {
+              registry.addEndpoint("/websocket")
+              .setAllowedOrigins("*")
+              .addInterceptors(new JwtHandshakeInterceptor(jwtUtil, userDetailsService));
+        }
+        @Override
+        public void configureClientInboundChannel(ChannelRegistration registration) {
+              registration.interceptors(new ChannelInterceptor() {
+                  @Override
+                  public Message<?> preSend(Message<?> message, MessageChannel channel) {
+                      StompHeaderAccessor accessor = StompHeaderAccessor.wrap(message);
+                      Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+                      if (auth != null && accessor.getCommand() != null) {
+                           accessor.setUser(auth);
+                      }
+                  return message;
+              }
+        });
+        }
+}</code>
+              </pre>
+            </ul>
+          </dd>
+          <dt>핸들러:</dt>
+          <dd>
+            <ul>
+              <pre>
+                <code>@MessageMapping("/private-message")
+public void sendPrivateMessage(@Payload MessageDTO messageDTO, Principal principal) throws Exception {
+          messageDTO.setSenderName(principal.getName()); // "user1" 정상 작동!
+          messageDTO.setEnrolledAt(Timestamp.valueOf(LocalDateTime.now()));
+          redisService.addPendingMessage(messageDTO);
+          messagingTemplate.convertAndSend("/topic/private-chat/" + messageDTO.getChatRoomId(), messageDTO);
+}
+                </code>
+              </pre>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>마무리 소감</h4>
+          <dt>소감:</dt>
+          <dd>
+            <ul>
+              <li>null 값을 쫓아 스레드와 객체 클론 문제를 해결하며 Spring WebSocket과 인증에 대해 많은 교훈 얻음.</li>
+              <li>작동하는 채팅 기능 완성, 이 기록은 앞으로 비슷한 문제에 대비한 길잡이.</li>
+              <li>STOMP에서 null username으로 고민 중인 이들에게 이 경험이 도움이 되길.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <br />
+        <hr class="major" />
+        <p>Posted on 2025.03.04</p>
+      </section>
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>

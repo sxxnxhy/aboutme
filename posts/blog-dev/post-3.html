@@ -42,6 +42,11 @@
             <dd>
                 <ul>
                     <li>웹소켓 연결 시 URL에 토큰을 포함해서 전송. 예: <code>ws://example.com?token=토큰값</code></li>
+                    <pre>
+                        <code>const stompClient = new StompJs.Client({
+        brokerURL: `wss://${window.location.hostname}/websocket?token=토큰`
+      });</code>
+                    </pre>
                 </ul>
 
             </dd>

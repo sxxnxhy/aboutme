@@ -66,6 +66,39 @@
             <dd>
                 <ul>
                     <li>유저가 처음 로그인 시, 서버에서 토큰을 생성하고 이를 쿠키에 저장.</li>
+                    <pre>
+                        <code>@Component
+public class JwtUtil {
+    private static final String SECRET_KEY = "syoo-secret-key-tlzmflt-zl"; //키 값
+    private static final long EXPIRATION_TIME = 86400000; // 24 hours
+
+    public String generateToken(Integer userId) {
+        return Jwts.builder()
+                .setSubject(userId.toString())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION_TIME))
+                .signWith(SignatureAlgorithm.HS256, SECRET_KEY)
+                .compact();
+    }
+
+    public Integer getUserIdFromToken(String token) {
+        Claims claims = Jwts.parser()
+                .setSigningKey(SECRET_KEY)
+                .parseClaimsJws(token)
+                .getBody();
+        return Integer.parseInt(claims.getSubject());
+    }
+
+    public boolean validateToken(String token) {
+        try {
+            Jwts.parser().setSigningKey(SECRET_KEY).parseClaimsJws(token);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+}</code>
+                    </pre>
                     <li>이 쿠키를 클라이언트에게 전달</li>
                     <li>쿠키는 모든 후속 요청(HTTP 및 웹소켓)에 자동으로 포함되어 서버로 전송됨.</li>
                 </ul>
@@ -75,6 +108,52 @@
                 <ul>
                     <li>웹소켓 연결 시 인터셉터 <code>HandshakeInterceptor</code>를 다시 활성화.</li>
                     <li>인터셉터에서 <code>HttpServletRequest.getCookies()</code>로 쿠키를 읽고, 토큰을 추출해 검증 (예: <code>JwtUtil</code> 사용).</li>
+                    <pre>
+                        <code>@Slf4j
+public class JwtHandshakeInterceptor implements HandshakeInterceptor {
+    private final JwtUtil jwtUtil;
+
+    public JwtHandshakeInterceptor(JwtUtil jwtUtil) {
+        this.jwtUtil = jwtUtil;
+    }
+
+
+    @Override
+    public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                                   WebSocketHandler wsHandler, Map<String, Object> attributes) {
+        if (!(request instanceof ServletServerHttpRequest servletRequest)) {
+            response.setStatusCode(HttpStatus.UNAUTHORIZED);
+            return false;
+        }
+
+        HttpServletRequest httpServletRequest = servletRequest.getServletRequest();
+        Cookie[] cookies = httpServletRequest.getCookies();
+
+        if (cookies != null) {
+            for (Cookie cookie : cookies) {
+                if ("Authorization".equals(cookie.getName())) {
+                    String token = cookie.getValue();
+                    if (jwtUtil.validateToken(token)) {
+                        Integer userId = jwtUtil.getUserIdFromToken(token);
+                        attributes.put("userId", userId);
+                        log.info("Websocket, Validated UserID: {}", userId);
+                        return true;
+                    }
+                    System.out.println("Token validation failed");
+                    response.setStatusCode(HttpStatus.UNAUTHORIZED);
+                    return false;
+                }
+            }
+        }
+
+        response.setStatusCode(HttpStatus.UNAUTHORIZED);
+        return false;
+    }
+
+    @Override
+    public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
+                               WebSocketHandler wsHandler, Exception exception) {}
+}</code></pre>
                     <li>토큰이 유효하면 웹소켓 연결 허용, 그렇지 않으면 연결 차단.</li>
                 </ul>
             </dd>
