@@ -1243,7 +1243,11 @@ input[type="radio"] + label:before {
     width: 100%; }
     .image.main img {
       width: 100%; }
-
+@media screen and (max-width: 600px) {
+  .image.main img {
+    width: 330px !important; /* Adjusted for mobile */
+  }
+}
 a.image {
   overflow: hidden; }
   a.image img {
