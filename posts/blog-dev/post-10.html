@@ -70,16 +70,16 @@
           <dd>
             <ul>
               <li>Spring Boot의 정적 폴더에서 Nginx가 제공할 위치로 파일 이동 시작:</li>
-              <li>디렉토리 생성 (없을 경우):<code>sudo mkdir -p /var/www/html</code></li>
-              <li>Spring Boot 프로젝트에서 모든 정적 파일(HTML, JS, CSS, 이미지 등) 복사:<code>sudo cp -r /path/to/my/spring-boot-project/src/main/resources/static/* /var/www/html/</code></li>
-              <li>Nginx가 파일을 읽을 수 있도록 권한 설정:<code>sudo chown -R www-data:www-data /var/www/html</code><code>sudo chmod -R 755 /var/www/html</code></li>
+                <li>디렉토리 생성 (없을 경우): <pre><code>sudo mkdir -p /var/www/html</code></pre></li>
+                <li>Spring Boot 프로젝트에서 모든 정적 파일(HTML, JS, CSS, 이미지 등) 복사: <pre><code>sudo cp -r /path/to/my/spring-boot-project/src/main/resources/static/* /var/www/html/</code></pre></li>
+                <li>Nginx가 파일을 읽을 수 있도록 권한 설정: <pre><code>sudo chown -R www-data:www-data /var/www/html</code><code>sudo chmod -R 755 /var/www/html</code></pre></li>
             </ul>
           </dd>
           <dt>2. Nginx 설정으로 정적 파일 제공 및 Spring Boot로 프록시</dt>
           <dd>
             <ul>
               <li>Nginx 설정 파일을 편집해 프론트엔드-백엔드 분리 설정:</li>
-              <li>파일 열기:<code>sudo vim /etc/nginx/sites-available/default</code></li>
+                <li>파일 열기:<pre><code>sudo vim /etc/nginx/sites-available/default</code></pre></li>
               <li>Nginx 설정 업데이트:
                 <pre><code>server {
                   listen 80 default_server;
@@ -172,7 +172,7 @@ server {
                 </code></pre>
               </li>
               <li><code>location /api/</code> 안에 추가:<code>proxy_intercept_errors on;</code></li>
-              <li>Nginx 테스트 및 재로드:<code>sudo nginx -t</code><code>sudo nginx -s reload</code></li>
+                <li>Nginx 테스트 및 재로드: <pre><code>sudo nginx -t</code><code>sudo nginx -s reload</code></pre></li>
             </ul>
           </dd>
           <dt>3. 루트 리다이렉트를 위한 <code>index.html</code> 설정</dt>
