@@ -1,0 +1,218 @@
+<!DOCTYPE HTML>
+
+<html>
+<head>
+  <title>Yoo's blog</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <link rel="stylesheet" href="../../assets/css/main.css" />
+  <link rel="apple-touch-icon" sizes="57x57" href="../../images/favicon/apple-icon-57x57.png">
+  <link rel="apple-touch-icon" sizes="60x60" href="../../images/favicon/apple-icon-60x60.png">
+  <link rel="apple-touch-icon" sizes="72x72" href="../../images/favicon/apple-icon-72x72.png">
+  <link rel="apple-touch-icon" sizes="76x76" href="../../images/favicon/apple-icon-76x76.png">
+  <link rel="apple-touch-icon" sizes="114x114" href="../../images/favicon/apple-icon-114x114.png">
+  <link rel="apple-touch-icon" sizes="120x120" href="../../images/favicon/apple-icon-120x120.png">
+  <link rel="apple-touch-icon" sizes="144x144" href="../../images/favicon/apple-icon-144x144.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="../../images/favicon/apple-icon-152x152.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="../../images/favicon/apple-icon-180x180.png">
+  <link rel="icon" type="image/png" sizes="192x192"  href="../../images/favicon/android-icon-192x192.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="../../images/favicon/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="96x96" href="../../images/favicon/favicon-96x96.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="../../images/favicon/favicon-16x16.png">
+  <link rel="manifest" href="../../images/favicon/manifest.json">
+  <meta name="msapplication-TileColor" content="#ffffff">
+  <meta name="msapplication-TileImage" content="/ms-icon-144x144.png">
+  <meta name="theme-color" content="#ffffff">
+</head>
+<body class="is-preload">
+
+<!-- Wrapper -->
+<div id="wrapper">
+
+  <!-- Main -->
+  <div id="main">
+    <div class="inner">
+
+      <!-- Header -->
+      <header id="header">
+        <a href="../../index.html" class="logo"><strong>Blog</strong> by Seunghyun Yoo</a>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </header>
+
+      <section>
+        <header class="main">
+          <h2>JPA에서 JdbcTemplate로 bulk update 최적화</h2>
+        </header>
+        <hr class="major" />
+        <p>원래 Spring Data JPA의 <code>messageRepository.saveAll(messages)</code>를 사용해 <code>Message</code> 객체 리스트를 데이터베이스에 저장했으나, <code>saveAll</code>이 개별 <code>save</code>를 반복하는 방식이라 대량 작업에 비효율적이라는 것을 알게 됐다.</p>
+        <p>당연히 <code>saveAll</code>은 벌크 업데이트일 줄 알았던 나는 큰 충격을 받았다. 리소스 관리를 위해 Redis를 쓰고 최적화에 노력했는데, 정작 <code>saveAll</code>로 많은 SQL 쿼리를 발생시키고 있었다. 그래서 <code>JdbcTemplate</code>를 이용해 벌크 업데이트를 할 수 있다는 것을 찾아내고 해결했다.</p>
+
+        <hr class="major" />
+        <dl>
+          <h4>문제</h4>
+          <dt>JPA의 비효율성:</dt>
+          <dd>
+            <ul>
+              <li>처음에 쓴 <code>messageRepository.saveAll(messages)</code> (JPA)는 각 <code>Message</code>마다 별도의 <code>INSERT</code> 문을 보내 느렸고, 데이터베이스 왕복이 너무 많았다.</li>
+            </ul>
+          </dd>
+          <dt>JPA 인터페이스 한계:</dt>
+          <dd>
+            <ul>
+              <li><code>MessageRepository</code>가 JPA 인터페이스라 <code>JdbcTemplate</code>를 직접 사용할 수 없었다. 인터페이스는 필드나 로직을 가질 수 없기 때문이다.</li>
+            </ul>
+          </dd>
+        </dl>
+
+        <hr class="major" />
+        <dl>
+          <h4>해결한 방법</h4>
+          <dt>새 클래스 생성:</dt>
+          <dd>
+            <ul>
+              <li><code>JdbcTemplate</code>로 벌크 삽입을 처리하기 위해 새 클래스 <code>MessageBulkRepository</code>를 만들었다:</li>
+              <li><code>@Repository public class MessageBulkRepository</code>를 정의하고, <code>JdbcTemplate</code> 필드를 추가 (<code>@RequiredArgsConstructor</code>로 주입).</li>
+              <li>이 클래스는 JPA 리포지토리와 별도로 대량 삽입을 담당.</li>
+            </ul>
+          </dd>
+          <dt>bulk update 메서드:</dt>
+          <dd>
+            <ul>
+              <li><code>bulkInsertMessages(List<Message> messages)</code>를 <code>jdbcTemplate.batchUpdate</code>로 구현.</li>
+              <li>SQL: <code>"INSERT INTO message (chat_room_id, sender_id, content, enrolled_at) VALUES (?, ?, ?, ?)"</code>로 작성, <code>message_id</code>는 자동 증가라 제외.</li>
+              <li><code>BatchPreparedStatementSetter</code> 사용:</li>
+              <li><code>setValues</code>에서 각 <code>Message</code> 객체의 필드를 SQL 플레이스홀더에 매핑.</li>
+              <li><code>getBatchSize() { return messages.size(); }</code>로 배치 크기 설정.</li>
+            </ul>
+          </dd>
+          <dt>코드:</dt>
+          <dd>
+            <pre><code>@Repository
+@RequiredArgsConstructor
+public class MessageBulkRepository {
+
+    private final JdbcTemplate jdbcTemplate;
+
+    public void bulkInsertMessages(List<Message> messages) {
+        String sql = "INSERT INTO message (chat_room_id, sender_id, content, enrolled_at) " +
+                "VALUES (?, ?, ?, ?)";
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                Message message = messages.get(i);
+
+                ps.setLong(1, message.getChatRoom().getChatRoomId());
+                if (message.getUser() != null) {
+                    ps.setLong(2, message.getUser().getUserId());
+                } else {
+                    ps.setNull(2, java.sql.Types.BIGINT);
+                }
+                ps.setString(3, message.getContent());
+                ps.setTimestamp(4, message.getEnrolledAt());
+            }
+
+            @Override
+            public int getBatchSize() {
+                return messages.size();
+            }
+        });
+    }
+
+}</code></pre>
+          </dd>
+        </dl>
+
+        <br />
+        <hr class="major" />
+        <p>Posted on 2025.03.11</p>
+      </section>
+
+
+
+
+
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="sidebar" >
+    <div class="inner">
+      <!-- Menu -->
+      <nav id="menu">
+        <header class="major">
+          <h2>Menu</h2>
+        </header>
+        <ul>
+          <li><a href="../../index.html">Homepage</a></li>
+          <li><a href="../../pages/about-me.html">About Me</a></li>
+          <li>
+            <span class="opener">Blog</span>
+            <ul>
+              <li><a href="../../pages/blog-dev.html">Dev</a></li>
+              <li><a href="../../pages/blog-tech.html">Tech</a></li>
+              <li><a href="../../pages/blog-personal.html">Personal</a></li>
+              <li><a href="../../pages/blog-travel.html">Travel</a></li>
+            </ul>
+          </li>
+          <li><a href="../../pages/projects.html">Projects</a></li>
+        </ul>
+      </nav>
+
+      <!-- Section -->
+      <!--								<section>-->
+      <!--									<header class="major">-->
+      <!--										<h2>Ante interdum</h2>-->
+      <!--									</header>-->
+      <!--									<div class="mini-posts">-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic07.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic08.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--										<article>-->
+      <!--											<a href="#" class="image"><img src="images/pic09.jpg" alt="" /></a>-->
+      <!--											<p>Aenean ornare velit lacus, ac varius enim lorem ullamcorper dolore aliquam.</p>-->
+      <!--										</article>-->
+      <!--									</div>-->
+      <!--									<ul class="actions">-->
+      <!--										<li><a href="#" class="button">More</a></li>-->
+      <!--									</ul>-->
+      <!--								</section>-->
+
+      <!-- Section -->
+      <section>
+        <header class="major">
+          <h2>Get in touch with me!</h2>
+        </header>
+        <p>Feel free to contact me!</p>
+        <ul class="contact">
+          <li class="icon solid fa-envelope"><a href="#">yooseunghyunn@gmail.com</a></li>
+          <li class="icon solid fa-home">Seoul, South Korea</li>
+        </ul>
+        <ul class="icons">
+          <li><a href="https://www.instagram.com/seunghyu_/" class="icon brands fa-instagram"><span class="label">Instagram</span></a></li>
+          <li><a href="https://github.com/sxxnxhy" class="icon brands fa-github"><span class="label">Medium</span></a></li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Scripts -->
+<script src="../../assets/js/jquery.min.js"></script>
+<script src="../../assets/js/browser.min.js"></script>
+<script src="../../assets/js/breakpoints.min.js"></script>
+<script src="../../assets/js/util.js"></script>
+<script src="../../assets/js/main.js"></script>
+
+</body>
+</html>
