@@ -47,7 +47,7 @@
           <h2>Spring WebSocket에서 @AuthenticationPrincipal이 null인 것 해결하기</h2>
         </header>
         <hr class="major" />
-        <p>Spring WebSocket과 STOMP 메시징을 사용해 JWT 인증 기반 개인 채팅 기능을 구현하던 중, <code>@MessageMapping("/private-message")</code> 핸들러에서 <code>@AuthenticationPrincipal CustomUserDetails userDetails</code>로 인증된 유저의 username을 가져와 발신자 이름으로 설정하려 했으나, <code>userDetails.getUsername()</code>이 계속 null로 반환되는 문제를 겪었다. 데이터베이스에는 username "user1"이 분명히 존재했는데도 말이다. 간단히 끝내려던 작업이 Spring Security, WebSocket 스레딩, 그리고 예상치 못한 문제들로 이어진 깊은 탐구가 되었다. 여기 그 과정을 정리하고 해결법을 기록한다.</p>
+        <p>Spring WebSocket과 STOMP 메시징을 사용해 JWT 인증 기반 개인 채팅 기능을 구현하던 중, <code>@MessageMapping("/private-message")</code> 핸들러에서 <code>@AuthenticationPrincipal CustomUserDetails userDetails</code>로 인증된 유저의 username을 가져와 발신자 이름으로 설정하려 했으나, <code>userDetails.getUsername()</code>이 계속 null로 반환되는 문제를 겪었다. 데이터베이스에는 username "user1"이 분명히 존재했지만 Spring Security에 담기지 않았다. 간단히 끝내려던 작업이 Spring Security, WebSocket 스레딩, 그리고 예상치 못한 문제들로 이어졌다.</p>
 
         <hr class="major" />
         <dl>
@@ -288,19 +288,6 @@ public void sendPrivateMessage(@Payload MessageDTO messageDTO, Principal princip
 }
                 </code>
               </pre>
-            </ul>
-          </dd>
-        </dl>
-
-        <hr class="major" />
-        <dl>
-          <h4>마무리 소감</h4>
-          <dt>소감:</dt>
-          <dd>
-            <ul>
-              <li>null 값을 쫓아 스레드와 객체 클론 문제를 해결하며 Spring WebSocket과 인증에 대해 많은 교훈 얻음.</li>
-              <li>작동하는 채팅 기능 완성, 이 기록은 앞으로 비슷한 문제에 대비한 길잡이.</li>
-              <li>STOMP에서 null username으로 고민 중인 이들에게 이 경험이 도움이 되길.</li>
             </ul>
           </dd>
         </dl>
